@@ -1,146 +1,214 @@
 import os
 import sys
-import asyncio
+import time
+import io
+import re
 import random
+import asyncio
 import logging
-from db_manager import SupabaseQueueManager
-from browser_client import CloakedBrowserClient
-from parser import AvivaDomParser
+from bs4 import BeautifulSoup
+from pypdf import PdfReader
 from curl_cffi import requests as cloaked_requests
-from utils import get_proxy_endpoint, extract_isin_from_pdf_bytes
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+# Structural Module Imports from your repository layout
+from db_manager import SupabaseQueueManager  # Handles atomic state updates
+from parser import AvivaDomParser            # Contains locate_kiid_anchor
+from utils import get_proxy_endpoint         # Fetches your target residential proxies
+from cloakbrowser import launch             # Your native working sync browser launcher
 
-async def human_pacing_sequence(page, run_cooldown=False):
-    """Encapsulates telemetry-breaking interactive steps."""
-    if run_cooldown:
-        cooldown = random.uniform(25.0, 45.0)
-        logging.info(f"🧘 Akamai Cadence Break activated — pausing for {cooldown:.1f}s...")
-        await asyncio.sleep(cooldown)
-        return
+# Configure runtime execution logger
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - [%(threadName)s] - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+
+# ============================================================================
+# THREAD-SAFE SYNCHRONOUS BROWSER PIPELINE (STAGE 2: MF_Discovery)
+# ============================================================================
+
+def run_sync_browser_discovery(url: str) -> str | None:
+    """
+    Executes entirely within an isolated background thread context.
+    Uses native synchronous syntax so Playwright Sync API stays happy.
+    """
+    logging.info(f"🌐 Spawning CloakBrowser thread for URL: {url}")
+    proxy_dict = get_proxy_endpoint()
+    assigned_proxy = proxy_dict["proxy"]
     
-    await page.mouse.move(random.randint(200, 700), random.randint(200, 600))
-    await asyncio.sleep(random.uniform(0.5, 1.2))
+    # Launch tracking instance matching your original repository settings
+    browser = launch(headless=True, proxy=assigned_proxy, geoip=True, humanize=True)
+    page = browser.new_page()
     
-    for _ in range(random.randint(1, 2)):
-        scroll_delta = random.randint(280, 480)
-        await page.evaluate(f"window.scrollBy(0, {scroll_delta})")
-        await asyncio.sleep(random.uniform(1.0, 1.5))
-
-
-async def process_task(fund_type: str, payload: dict, page) -> list[dict] | dict | None:
-    """Executes target routing based on the locked queue item sub-type context."""
+    # Abort heavy assets inline to conserve proxy bandwidth allocation
+    page.route("**/*", lambda route: route.abort() 
+               if route.request.resource_type in {"stylesheet", "font", "image", "media"} 
+               else route.continue_())
     
-    # ========================================================================
-    # STAGE 1 & 2: Browser Actions (Requires CloakBrowser Instance)
-    # ========================================================================
-    if fund_type in ["Investment", "ETF", "MF_Pagination"]:
-        url = payload["target_url"]
-        await page.goto(url, wait_until="commit", timeout=120000)
-        await human_pacing_sequence(page)
+    try:
+        page.goto(url, wait_until="commit", timeout=120000)
         
+        # Apply standard interactive cadence masks to blend with human footprints
+        page.mouse.move(random.randint(200, 700), random.randint(200, 600))
+        time.sleep(random.uniform(1.5, 3.0))
+        
+        # Interact with the cookie management layer if visible
         cookie_btn = page.locator("#onetrust-accept-btn-handler")
-        if await cookie_btn.is_visible():
-            await cookie_btn.click()
-            await asyncio.sleep(random.uniform(0.5, 1.5))
+        if cookie_btn.is_visible():
+            cookie_btn.click()
+            time.sleep(random.uniform(0.5, 1.5))
             
-        html = await page.content()
-        return AvivaDomParser.extract_pagination_rows(html)
+        html = page.content()
+        soup = BeautifulSoup(html, "html.parser")
+        anchor = soup.find("a", title="Link to KIID")
         
-    elif fund_type == "MF_KIID":
-        url = payload["fund_url"]
-        await page.goto(url, wait_until="commit", timeout=120000)
-        await human_pacing_sequence(page)
+        return anchor.get("href") if anchor else None
         
-        html = await page.content()
-        kiid_link = AvivaDomParser.locate_kiid_anchor(html)
-        
-        payload.update(kiid=kiid_link)
-        return [payload]
+    finally:
+        try:
+            page.close()
+            browser.close()
+        except Exception:
+            pass
 
-    # ========================================================================
-    # STAGE 3: High-Speed Stream Actions (No Browser, Just Network Sockets)
-    # ========================================================================
+# ============================================================================
+# THREAD-SAFE HIGH-SPEED PDF STREAM ENGINE (STAGE 3: MF_KIID)
+# ============================================================================
+
+def run_sync_pdf_isin_extraction(kiid_url: str) -> str | None:
+    """
+    Bypasses the UI entirely. Uses curl_cffi to fetch binary data 
+    and pypdf regex processing to extract validated ISIN codes.
+    """
+    logging.info(f"📥 Streaming target binary bytes from KIID: {kiid_url}")
+    proxy_dict = get_proxy_endpoint()
+    session_proxy = proxy_dict["proxy"]
+    
+    try:
+        # Replicates the authenticated download stream headers from your kiid.py file
+        cookies = {
+            'ApplicationGatewayAffinityCORS': 'e1dd5c8d8f0aaac8dbef88daaa63d498',
+            'ApplicationGatewayAffinity': 'e1dd5c8d8f0aaac8dbef88daaa63d498',
+        }
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36...',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,*/*'
+        }
+        
+        response = cloaked_requests.get(
+            kiid_url,
+            headers=headers,
+            cookies=cookies,
+            proxies={"http": session_proxy, "https": session_proxy},
+            timeout=45
+        )
+        
+        if response.status_code != 200:
+            logging.error(f"Network request rejected with status code: {response.status_code}")
+            return None
+            
+        # Parse text buffers in-memory
+        pdf_file = io.BytesIO(response.content)
+        reader = PdfReader(pdf_file)
+        
+        # Compile exact regex engine footprints used in your kiid.py file
+        isin_extract_rx = re.compile(r"[A-Z]{2}(?:[?\s]*[A-Z0-9]){9}[?\\s]*[0-9]")
+        isin_strict_rx = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$")
+        
+        for page in reader.pages:
+            text = page.extract_text() or ""
+            matches = isin_extract_rx.findall(text)
+            
+            for match in matches:
+                cleaned_isin = match.replace(" ", "")
+                if isin_strict_rx.match(cleaned_isin):
+                    return cleaned_isin
+                    
+    except Exception as e:
+        logging.error(f"Error processing PDF stream content: {e}")
+        
+    return None
+
+# ============================================================================
+# ASYNC TASK DISPATCH ROUTER LAYER
+# ============================================================================
+
+async def process_task(fund_type: str, payload: dict) -> list[dict] | None:
+    """
+    Bridges your async orchestration runner to thread-isolated execution blocks
+    to guarantee Playwright never triggers threading panic loops.
+    """
+    # --- STAGE 2: VISITING THE DETAILS PAGE VIA BROWSER TO EXTRACT PDF URL ---
+    if fund_type == "MF_KIID":
+        url = payload["fund_url"]
+        
+        # Run blocking sync browser functions completely off the event loop
+        kiid_link = await asyncio.to_thread(run_sync_browser_discovery, url)
+        
+        if kiid_link:
+            return [{
+                "name": payload["name"],
+                "url": url,
+                "kiid": kiid_link,
+                "isin": None
+            }]
+            
+    # --- STAGE 3: DOWNLOADING CODES STRAIGHT FROM DISCOVERED PDF BINARIES ---
     elif fund_type == "MF_ISIN":
         kiid_url = payload["kiid_url"]
         
-        # Pull a proxy to keep your network profile cloaked from Akamai
-        proxy_dict = get_proxy_endpoint()
-        session_proxy = proxy_dict["proxy"]
+        # Stream binary files instantly over raw connection sockets
+        isin_code = await asyncio.to_thread(run_sync_pdf_isin_extraction, kiid_url)
         
-        # Issue a direct binary request using curl_cffi requests framework
-        # We run it inside asyncio.to_thread so it doesn't freeze your event loop
-        response = await asyncio.to_thread(
-            cloaked_requests.get,
-            kiid_url,
-            proxies={"http": session_proxy, "https": session_proxy},
-            timeout=30
-        )
+        return [{
+            "name": payload["name"],
+            "url": payload["url"],
+            "kiid": kiid_url,
+            "isin": isin_code
+        }]
         
-        if response.status_code == 200:
-            # Send the binary data stream directly to your regex extractors
-            isin = extract_isin_from_pdf_bytes(response.content)
-            
-            # Map the clean validated data payload back
-            return [{
-                "name": payload["name"],
-                "url": payload["url"],
-                "isin": isin,
-                "kiid": kiid_url
-            }]
-        else:
-            raise Exception(f"Failed to stream PDF chunk. Status code: {response.status_code}")
     return None
 
+# ============================================================================
+# RUNNABLE MAIN EXECUTION LOOP ENGINE
+# ============================================================================
+
 async def main():
-    runner_id = os.environ.get("RUNNER_IDENTIFIER", "local-dev-worker")
-    fund_type_job = os.environ.get("TARGET_FUND_TYPE", "Investment")
+    runner_id = os.environ.get("RUNNER_IDENTIFIER", "local-dev-node")
+    # Toggles between 'MF_Discovery' (Browser) and 'MF_KIID' (Direct Network Stream)
+    fund_type_job = os.environ.get("TARGET_FUND_TYPE", "MF_Discovery")
     
     db = SupabaseQueueManager()
-    browser_manager = CloakedBrowserClient()
+    logging.info(f"🚀 Initializing Orchestration Runner Node: {runner_id} for operation: {fund_type_job}")
     
-    await browser_manager.init_browser()
-    success_count = 0
-    
-    try:
-        while True:
-            task_wrapper = db.fetch_and_lock_task(runner_id, fund_type_job)
-            if not task_wrapper:
-                logging.info("Distributed processing queue dry. Exiting worker loop safely.")
-                break
-                
-            task_id = task_wrapper["task_id"]
-            payload = task_wrapper["payload"]
+    while True:
+        # Atomic transactional pulling sequence
+        task_wrapper = db.fetch_and_lock_task(runner_id, fund_type_job)
+        if not task_wrapper:
+            logging.info("🏁 Supabase task queue pool exhausted. Exiting worker loop safely.")
+            break
             
-            # Periodically force deep cooldown steps before hitting the network limits
-            if success_count > 0 and success_count % random.randint(7, 11) == 0:
-                # Use a dummy context or handle cadence pauses directly via manager
-                pass 
-                
-            context, page = await browser_manager.get_page_context()
+        task_id = task_wrapper["task_id"]
+        payload = task_wrapper["payload"]
+        
+        try:
+            results = await process_task(fund_type_job, payload)
             
-            try:
-                # Execute automated scraping steps 
-                results = await process_task(fund_type_job, payload, page)
-                
-                # Stream the newly mined items into our production table right away
-                if results:
-                    db.stream_funds_batch(fund_type_job, results)
-                    
+            if results:
+                # Instantly stream row batches to your master cloud storage repository
+                db.stream_funds_batch("MF", results)
                 db.update_task_status(task_id, "completed")
-                success_count += 1
-                logging.info(f"✅ Processed task ID: {task_id} successfully.")
+                logging.info(f"✅ Successfully synchronized Task ID {task_id}")
+            else:
+                db.update_task_status(task_id, "failed")
+                logging.warning(f"⚠️ Task ID {task_id} completed execution but returned no data signatures.")
                 
-            except Exception as e:
-                logging.error(f"❌ Failure handling Task ID {task_id}: {e}")
-                db.update_task_status(task_id, "failed", error_inc=True)
-            finally:
-                await context.close()
-                # Variable padding pause to keep access profiles natural
-                await asyncio.sleep(random.uniform(2.0, 3.5))
-                
-    finally:
-        await browser_manager.close()
+        except Exception as e:
+            logging.error(f"❌ Structural crash handling Task ID {task_id}: {e}")
+            db.update_task_status(task_id, "failed")
+            
+        # Variable sleep interval to stagger outgoing target hits
+        await asyncio.sleep(random.uniform(2.0, 4.0))
 
 if __name__ == "__main__":
     asyncio.run(main())
