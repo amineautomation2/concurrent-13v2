@@ -1,0 +1,49 @@
+name: Distributed Aviva Extraction Engine
+
+on:
+  workflow_dispatch:
+    inputs:
+      fund_target:
+        description: 'Choose target tracking pool category context'
+        required: true
+        default: 'Investment'
+        type: choice
+        options:
+          #- 'Investment'
+          #- 'ETF'
+          #- 'MF_Pagination'
+          - 'MF_Discovery'
+          - 'MF_KIID'
+
+jobs:
+  orchestrate-nodes:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Spawns 10 parallel high-performance virtual machine workers
+        node_id: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+    steps:
+      - name: Codebase Clone Step
+        uses: actions/checkout@v4
+
+      - name: Initialize Python Runtime
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install System Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Decoupled Node Task Consumer
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          TARGET_FUND_TYPE: ${{ github.event.inputs.fund_target }}
+          RUNNER_IDENTIFIER: "aviva-runner-node-${{ matrix.node_id }}-${{ github.run_id }}"
+        run: |
+          python main_worker.py
