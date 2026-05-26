@@ -47,7 +47,7 @@ async def process_task(fund_type: str, payload: dict, page) -> list[dict] | dict
         html = await page.content()
         return AvivaDomParser.extract_pagination_rows(html)
         
-    elif fund_type == "MF_Discovery":
+    elif fund_type == "MF_KIID":
         url = payload["fund_url"]
         await page.goto(url, wait_until="commit", timeout=120000)
         await human_pacing_sequence(page)
@@ -61,7 +61,7 @@ async def process_task(fund_type: str, payload: dict, page) -> list[dict] | dict
     # ========================================================================
     # STAGE 3: High-Speed Stream Actions (No Browser, Just Network Sockets)
     # ========================================================================
-    elif fund_type == "MF_KIID":
+    elif fund_type == "MF_ISIN":
         kiid_url = payload["kiid_url"]
         
         # Pull a proxy to keep your network profile cloaked from Akamai

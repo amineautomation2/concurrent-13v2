@@ -12,8 +12,8 @@ on:
           #- 'Investment'
           #- 'ETF'
           #- 'MF_Pagination'
-          - 'MF_Discovery'
           - 'MF_KIID'
+          - 'MF_ISIN'
 
 jobs:
   orchestrate-nodes:
