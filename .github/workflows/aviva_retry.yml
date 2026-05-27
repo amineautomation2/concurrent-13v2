@@ -1,0 +1,38 @@
+name: Queue Fault Recovery Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      failed_stage_target:
+        description: 'Choose which target execution pool context to restore'
+        required: true
+        default: 'MF_Discovery'
+        type: choice
+        options:
+          - 'MF_Pagination'
+          - 'MF_KIID'
+          - 'MF_ISIN'
+
+jobs:
+  reset-queue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Codebase Clone Step
+        uses: actions/checkout@v4
+
+      - name: Initialize Python Runtime
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          pip install supabase
+
+      - name: Execute Queue Re-deployment
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          python retry_failed_queue.py ${{ github.event.inputs.failed_stage_target }}
