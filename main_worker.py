@@ -104,7 +104,8 @@ def run_sync_pdf_isin_extraction(kiid_url: str) -> str | None:
             kiid_url,
             headers=headers,
             cookies=cookies,
-            proxies={"http": session_proxy, "https": session_proxy},
+            # proxies={"http": session_proxy, "https": session_proxy},
+            proxies=None,
             timeout=45
         )
 
