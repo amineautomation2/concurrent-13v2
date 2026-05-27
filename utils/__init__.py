@@ -68,6 +68,7 @@ def get_proxy_endpoint() -> dict[str, str]:
         time.sleep(sleep_time)
         attempt += 1
 
+
 def get_xlsx_data(filename, sheet_name) -> list[dict]:
     wb = openpyxl.load_workbook(filename)
     ws = wb[sheet_name]
@@ -83,7 +84,7 @@ def get_xlsx_data(filename, sheet_name) -> list[dict]:
     wb.close()
     return data
 
-  
+
 def create_spreadsheet(filename, sheet_names, column_names, col_width=25):
     wb = openpyxl.Workbook()
 
@@ -135,6 +136,7 @@ def get_random_user_agent(platform: list[str] = ["windows"]) -> dict:
 
 def delay(min: float, max: float):
     sleep(uniform(min, max))
+
 
 def clean_spreadsheet(filename: str) -> None:
     wb = openpyxl.load_workbook(filename)
@@ -259,21 +261,23 @@ def save_xlsx(
     wb.save(xlsx_out)
     wb.close()
 
+
 def extract_isin_from_pdf_bytes(pdf_bytes: bytes) -> str | None:
     """Parses raw PDF bytes in-memory and executes loose-and-strict regex matching to extract the ISIN."""
     try:
         pdf_file = io.BytesIO(pdf_bytes)
         reader = PdfReader(pdf_file)
-        
+
         # Compile your regex engines (matching your exact kiid.py implementation)
-        isin_extract_rx = re.compile(r"[A-Z]{2}(?:[?\s]*[A-Z0-9]){9}[?\\s]*[0-9]")
+        isin_extract_rx = re.compile(
+            r"[A-Z]{2}(?:[?\s]*[A-Z0-9]){9}[?\\s]*[0-9]")
         isin_strict_rx = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$")
-        
+
         # Iterate through pages to pull out text buffers
         for page in reader.pages:
             text = page.extract_text() or ""
             matches = isin_extract_rx.findall(text)
-            
+
             for match in matches:
                 cleaned_isin = match.replace(" ", "")
                 if isin_strict_rx.match(cleaned_isin):
