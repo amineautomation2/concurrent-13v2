@@ -86,8 +86,8 @@ def run_sync_pdf_isin_extraction(kiid_url: str) -> str | None:
     and pypdf regex processing to extract validated ISIN codes.
     """
     logging.info(f"📥 Streaming target binary bytes from KIID: {kiid_url}")
-    proxy_dict = get_proxy_endpoint()
-    session_proxy = proxy_dict["proxy"]
+    # proxy_dict = get_proxy_endpoint()
+    # session_proxy = proxy_dict["proxy"]
 
     try:
         # Replicates the authenticated download stream headers from your kiid.py file
