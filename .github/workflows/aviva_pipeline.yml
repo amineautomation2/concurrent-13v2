@@ -9,9 +9,9 @@ on:
         default: 'Investment'
         type: choice
         options:
-          #- 'Investment'
-          #- 'ETF'
-          #- 'MF_Pagination'
+          - 'Investment'
+          - 'ETF'
+          - 'MF_Pagination'
           - 'MF_KIID'
           - 'MF_ISIN'
 

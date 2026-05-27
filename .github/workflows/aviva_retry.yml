@@ -9,6 +9,8 @@ on:
         default: 'MF_Discovery'
         type: choice
         options:
+          - 'Investment'
+          - 'ETF'
           - 'MF_Pagination'
           - 'MF_KIID'
           - 'MF_ISIN'
