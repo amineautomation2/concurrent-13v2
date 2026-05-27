@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import fitz
 import io
 import re
 import random
@@ -81,10 +82,6 @@ def run_sync_browser_discovery(url: str) -> str | None:
 
 
 def run_sync_pdf_isin_extraction(kiid_url: str) -> str | None:
-    """
-    Bypasses the UI entirely. Uses curl_cffi to fetch binary data 
-    and pypdf regex processing to extract validated ISIN codes.
-    """
     logging.info(f"📥 Streaming target binary bytes from KIID: {kiid_url}")
     # proxy_dict = get_proxy_endpoint()
     # session_proxy = proxy_dict["proxy"]
@@ -114,23 +111,38 @@ def run_sync_pdf_isin_extraction(kiid_url: str) -> str | None:
                 f"Network request rejected with status code: {response.status_code}")
             return None
 
-        # Parse text buffers in-memory
-        pdf_file = io.BytesIO(response.content)
-        reader = PdfReader(pdf_file)
+        if response and response.content:
+            # 1. Open the PDF from the in-memory bytes
+            doc = fitz.open(stream=response.content, filetype="pdf")
+            print(f"Successfully loaded PDF. Total pages: {len(doc)}")
 
-        # Compile exact regex engine footprints used in your kiid.py file
-        isin_extract_rx = re.compile(
-            r"[A-Z]{2}(?:[?\s]*[A-Z0-9]){9}[?\\s]*[0-9]")
-        isin_strict_rx = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$")
+            # Compile your regex engines
+            isin_extract_rx = re.compile(
+                r"[A-Z]{2}(?:[?\s]*[A-Z0-9]){9}[?\\s]*[0-9]")
+            isin_strict_rx = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$")
 
-        for page in reader.pages:
-            text = page.extract_text() or ""
-            matches = isin_extract_rx.findall(text)
+            for page_num in range(len(doc)):
+                page = doc[page_num]
+                text = page.get_text()  # This extracts the actual text string from the page
 
-            for match in matches:
-                cleaned_isin = match.replace(" ", "")
-                if isin_strict_rx.match(cleaned_isin):
-                    return cleaned_isin
+                # 1. Relaxed regex to find ISINs even if they have a random space inside
+                isin_extract_rx = re.compile(
+                    r"[A-Z]{2}(?:[?\s]*[A-Z0-9]){9}[?\s]*[0-9]")
+
+                # 2. Strict regex to validate after cleaning
+                isin_strict_rx = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$")
+                matches = isin_extract_rx.findall(text)
+
+                for match in matches:
+                    # Clean the extracted string by removing all spaces
+                    cleaned_isin = match.replace(" ", "")
+
+                    # Strictly validate
+                    if isin_strict_rx.match(cleaned_isin):
+                        doc.close()
+                        return cleaned_isin
+            doc.close()
+            return None
 
     except Exception as e:
         logging.error(f"Error processing PDF stream content: {e}")

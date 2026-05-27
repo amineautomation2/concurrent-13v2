@@ -1,3 +1,4 @@
+from fitz import re
 from curl_cffi import requests as cloaked_requests
 import os
 import pathlib
