@@ -142,7 +142,7 @@ def run_sync_pdf_isin_extraction(kiid_url: str) -> str | None:
                 # try openai
             isin = isin_from_gemini(kiid_url)
             doc.close()
-            delay(5.0, 7.0)
+            delay(6.0, 8.0)
             return isin if len(isin) == 12 else None
 
     except Exception as e:
