@@ -1,12 +1,11 @@
 import time
-import random
-from cloakbrowser import launch  # Your exact working sync import
-from utils import get_proxy_endpoint
+
+from cloakbrowser import launch
 
 
 class CloakedBrowserClient:
     """
-    Manages long-lived synchronous browser sessions and isolated short-lived 
+    Manages long-lived synchronous browser sessions and isolated short-lived
     contexts safely inside dedicated synchronous worker threads.
     """
 
@@ -27,17 +26,26 @@ class CloakedBrowserClient:
 
         # Fire up your native sync cloakbrowser context
         self.browser = launch(
-            headless=True, proxy=self.current_proxy, geoip=True, humanize=True)
+            headless=True, proxy=self.current_proxy, geoip=True, humanize=True
+        )
         self.session_birth = time.time()
 
     def _block_assets(self, page):
         """Synchronous Playwright asset abort router."""
-        page.route("**/*", lambda r: r.abort() if r.request.resource_type in
-                   {"stylesheet", "font", "image", "media"} else r.continue_())
+        page.route(
+            "**/*",
+            lambda r: (
+                r.abort()
+                if r.request.resource_type in {"stylesheet", "font", "image", "media"}
+                else r.continue_()
+            ),
+        )
 
     def get_page_context(self):
         """Creates a clean tab context. Recycles browser process if expired."""
-        if not self.browser or (time.time() - self.session_birth > self.MAX_BROWSER_LIFETIME_SEC):
+        if not self.browser or (
+            time.time() - self.session_birth > self.MAX_BROWSER_LIFETIME_SEC
+        ):
             self.init_browser()
 
         # Return sync page elements to the worker thread safely

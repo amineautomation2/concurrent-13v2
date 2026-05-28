@@ -1,29 +1,23 @@
-import os
-import sys
-import time
-import fitz
-import io
-import re
-import random
 import asyncio
 import logging
+import os
+import random
+import re
+import time
+
+import fitz
 from bs4 import BeautifulSoup
-from pypdf import PdfReader
+from cloakbrowser import launch
 from curl_cffi import requests as cloaked_requests
 
-# Structural Module Imports from your repository layout
-from db_manager import SupabaseQueueManager  # Handles atomic state updates
-from parser import AvivaDomParser            # Contains locate_kiid_anchor
-# Fetches your target residential proxies
-from utils import get_proxy_endpoint, get_random_user_agent, isin_from_gemini
-# Your native working sync browser launcher
-from cloakbrowser import launch
+from db_manager import SupabaseQueueManager
+from utils import delay, get_proxy_endpoint, get_random_user_agent, isin_from_gemini
 
 # Configure runtime execution logger
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - [%(threadName)s] - %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S"
+    datefmt="%Y-%m-%d %H:%M:%S",
 )
 
 # ============================================================================
@@ -41,14 +35,18 @@ def run_sync_browser_discovery(url: str) -> str | None:
     assigned_proxy = proxy_dict["proxy"]
 
     # Launch tracking instance matching your original repository settings
-    browser = launch(headless=True, proxy=assigned_proxy,
-                     geoip=True, humanize=True)
+    browser = launch(headless=True, proxy=assigned_proxy, geoip=True, humanize=True)
     page = browser.new_page()
 
     # Abort heavy assets inline to conserve proxy bandwidth allocation
-    page.route("**/*", lambda route: route.abort()
-               if route.request.resource_type in {"stylesheet", "font", "image", "media"}
-               else route.continue_())
+    page.route(
+        "**/*",
+        lambda route: (
+            route.abort()
+            if route.request.resource_type in {"stylesheet", "font", "image", "media"}
+            else route.continue_()
+        ),
+    )
 
     try:
         page.goto(url, wait_until="commit", timeout=120000)
@@ -76,6 +74,7 @@ def run_sync_browser_discovery(url: str) -> str | None:
         except Exception:
             pass
 
+
 # ============================================================================
 # THREAD-SAFE HIGH-SPEED PDF STREAM ENGINE (STAGE 3: MF_KIID)
 # ============================================================================
@@ -89,12 +88,12 @@ def run_sync_pdf_isin_extraction(kiid_url: str) -> str | None:
     try:
         # Replicates the authenticated download stream headers from your kiid.py file
         cookies = {
-            'ApplicationGatewayAffinityCORS': 'e1dd5c8d8f0aaac8dbef88daaa63d498',
-            'ApplicationGatewayAffinity': 'e1dd5c8d8f0aaac8dbef88daaa63d498',
+            "ApplicationGatewayAffinityCORS": "e1dd5c8d8f0aaac8dbef88daaa63d498",
+            "ApplicationGatewayAffinity": "e1dd5c8d8f0aaac8dbef88daaa63d498",
         }
         h = get_random_user_agent()
         headers = {
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,*/*'
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,*/*"
         }
         headers.update(h)
         response = cloaked_requests.get(
@@ -103,12 +102,13 @@ def run_sync_pdf_isin_extraction(kiid_url: str) -> str | None:
             cookies=cookies,
             # proxies={"http": session_proxy, "https": session_proxy},
             proxies=None,
-            timeout=45
+            timeout=45,
         )
 
         if response.status_code != 200:
             logging.error(
-                f"Network request rejected with status code: {response.status_code}")
+                f"Network request rejected with status code: {response.status_code}"
+            )
             return None
 
         if response and response.content:
@@ -119,11 +119,14 @@ def run_sync_pdf_isin_extraction(kiid_url: str) -> str | None:
             for page_num in range(doc.page_count):
                 page = doc[page_num]
                 page.clean_contents()
-                text = page.get_text()  # This extracts the actual text string from the page
+                text = (
+                    page.get_text()
+                )  # This extracts the actual text string from the page
 
                 # 1. Relaxed regex to find ISINs even if they have a random space inside
                 isin_extract_rx = re.compile(
-                    r"[A-Z]{2}(?:[?\s]*[A-Z0-9]){9}[?\s]*[0-9]")
+                    r"[A-Z]{2}(?:[?\s]*[A-Z0-9]){9}[?\s]*[0-9]"
+                )
                 # 2. Strict regex to validate after cleaning
                 isin_strict_rx = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$")
                 matches = isin_extract_rx.findall(text)
@@ -139,12 +142,14 @@ def run_sync_pdf_isin_extraction(kiid_url: str) -> str | None:
                 # try openai
             isin = isin_from_gemini(kiid_url)
             doc.close()
+            delay(5.0, 7.0)
             return isin if len(isin) == 12 else None
 
     except Exception as e:
         logging.error(f"Error processing PDF stream content: {e}")
 
     return None
+
 
 # ============================================================================
 # ASYNC TASK DISPATCH ROUTER LAYER
@@ -164,12 +169,9 @@ async def process_task(fund_type: str, payload: dict) -> list[dict] | None:
         kiid_link = await asyncio.to_thread(run_sync_browser_discovery, url)
 
         if kiid_link:
-            return [{
-                "name": payload["name"],
-                "url": url,
-                "kiid": kiid_link,
-                "isin": None
-            }]
+            return [
+                {"name": payload["name"], "url": url, "kiid": kiid_link, "isin": None}
+            ]
 
     # --- STAGE 3: DOWNLOADING CODES STRAIGHT FROM DISCOVERED PDF BINARIES ---
     elif fund_type == "MF_ISIN":
@@ -178,14 +180,17 @@ async def process_task(fund_type: str, payload: dict) -> list[dict] | None:
         # Stream binary files instantly over raw connection sockets
         isin_code = await asyncio.to_thread(run_sync_pdf_isin_extraction, kiid_url)
 
-        return [{
-            "name": payload["name"],
-            "url": payload["url"],
-            "kiid": kiid_url,
-            "isin": isin_code
-        }]
+        return [
+            {
+                "name": payload["name"],
+                "url": payload["url"],
+                "kiid": kiid_url,
+                "isin": isin_code,
+            }
+        ]
 
     return None
+
 
 # ============================================================================
 # RUNNABLE MAIN EXECUTION LOOP ENGINE
@@ -199,14 +204,16 @@ async def main():
 
     db = SupabaseQueueManager()
     logging.info(
-        f"🚀 Initializing Orchestration Runner Node: {runner_id} for operation: {fund_type_job}")
+        f"🚀 Initializing Orchestration Runner Node: {runner_id} for operation: {fund_type_job}"
+    )
 
     while True:
         # Atomic transactional pulling sequence
         task_wrapper = db.fetch_and_lock_task(runner_id, fund_type_job)
         if not task_wrapper:
             logging.info(
-                "🏁 Supabase task queue pool exhausted. Exiting worker loop safely.")
+                "🏁 Supabase task queue pool exhausted. Exiting worker loop safely."
+            )
             break
 
         task_id = task_wrapper["task_id"]
@@ -223,15 +230,16 @@ async def main():
             else:
                 db.update_task_status(task_id, "failed")
                 logging.warning(
-                    f"⚠️ Task ID {task_id} completed execution but returned no data signatures.")
+                    f"⚠️ Task ID {task_id} completed execution but returned no data signatures."
+                )
 
         except Exception as e:
-            logging.error(
-                f"❌ Structural crash handling Task ID {task_id}: {e}")
+            logging.error(f"❌ Structural crash handling Task ID {task_id}: {e}")
             db.update_task_status(task_id, "failed")
 
         # Variable sleep interval to stagger outgoing target hits
         await asyncio.sleep(random.uniform(2.0, 4.0))
+
 
 if __name__ == "__main__":
     asyncio.run(main())

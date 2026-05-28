@@ -1,5 +1,7 @@
 from bs4 import BeautifulSoup
+
 from utils import isin_from_text
+
 
 class AvivaDomParser:
     @staticmethod
@@ -7,7 +9,7 @@ class AvivaDomParser:
         """Parses active targets out of the standard paginated UI table grid."""
         soup = BeautifulSoup(html_content, "html.parser")
         collected_funds = []
-        
+
         row_elements = soup.select("#paginatedResults > fieldset > div")
         for row in row_elements:
             try:
@@ -15,13 +17,15 @@ class AvivaDomParser:
                 anchor_el = row.select_one("div:nth-child(2) > div > div > a")
                 if not name_el or not anchor_el:
                     continue
-                    
+
                 absolute_url = anchor_el.get("href", "")
-                collected_funds.append({
-                    "name": name_el.get_text(strip=True),
-                    "url": absolute_url,
-                    "isin": isin_from_text(absolute_url)
-                })
+                collected_funds.append(
+                    {
+                        "name": name_el.get_text(strip=True),
+                        "url": absolute_url,
+                        "isin": isin_from_text(absolute_url),
+                    }
+                )
             except Exception:
                 continue
         return collected_funds

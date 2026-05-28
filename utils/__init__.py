@@ -1,42 +1,37 @@
-from google.genai import types
-from google import genai
-from curl_cffi import requests as cloaked_requests
+import io
+import json
 import os
 import pathlib
-from random import uniform
-import re
-from time import sleep
-import time
-from curl_cffi import ProxySpec, requests
 import random
-from pathlib import Path
+import re
+import time
+from datetime import datetime
 from os.path import join
+from pathlib import Path
+from random import uniform
+from time import sleep
+
+import openpyxl
 import openpyxl.styles
 import ua_generator
-from ua_generator.options import Options as OptionsUA
-from ua_generator.data.version import VersionRange
-from datetime import datetime
-import openpyxl
-import json
+from curl_cffi import ProxySpec, requests
+from curl_cffi import requests as cloaked_requests
+from google import genai
+from google.genai import types
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
-import io
-import os
+from ua_generator.data.version import VersionRange
+from ua_generator.options import Options as OptionsUA
 
 
 def isin_from_gemini(input: str):
-    client = genai.Client(
-        api_key=os.environ.get("GEMINI_API_KEY")
-    )
+    client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
     model = "gemini-3.1-flash-lite"
     contents = [
         types.Content(
             role="user",
-            parts=[
-                types.Part.from_text(
-                    text=input)
-            ],
+            parts=[types.Part.from_text(text=input)],
         ),
     ]
     tools = [
@@ -48,9 +43,11 @@ def isin_from_gemini(input: str):
         ),
         tools=tools,
         system_instruction=[
-            types.Part.from_text(text="""* Extract only first ISIN found withing input url.
+            types.Part.from_text(
+                text="""* Extract only first ISIN found withing input url.
 * Stop further processing once an ISIN was found.
-* Return None if nothing was found."""),
+* Return None if nothing was found."""
+            ),
         ],
     )
 
@@ -61,7 +58,6 @@ def isin_from_gemini(input: str):
         config=generate_content_config,
     ):
         if text := chunk.text:
-
             out.append(text)
     return "".join(out)
 
@@ -81,11 +77,11 @@ def get_proxy_endpoint() -> dict[str, str]:
 
         # 2. Convert to 'socks5h://' to force curl_cffi to use remote DNS lookups
         curl_proxy_str = browser_proxy_str
-        socks_proxies = ProxySpec(
-            {"http": curl_proxy_str, "https": curl_proxy_str})
+        socks_proxies = ProxySpec({"http": curl_proxy_str, "https": curl_proxy_str})
 
         print(
-            f"🔄 [Proxy Check] Testing port {browser_proxy_str} for... (Attempt {attempt})")
+            f"🔄 [Proxy Check] Testing port {browser_proxy_str} for... (Attempt {attempt})"
+        )
 
         try:
             # Quick network request with a strict 5-second timeout
@@ -93,12 +89,11 @@ def get_proxy_endpoint() -> dict[str, str]:
                 "https://api.ipify.org",
                 proxies=socks_proxies,
                 impersonate="chrome",
-                timeout=5
+                timeout=5,
             )
 
             if response.status_code == 200 and response.text.strip():
-                print(
-                    f"✅ [Proxy Live] passed check. Exit IP: {response.text.strip()}")
+                print(f"✅ [Proxy Live] passed check. Exit IP: {response.text.strip()}")
                 # Returns the pristine socks5:// format for CloakBrowser
                 return dict(ip=response.text.strip(), proxy=browser_proxy_str)
 
@@ -135,9 +130,10 @@ def create_spreadsheet(filename, sheet_names, column_names, col_width=25):
     if "Sheet" in wb.sheetnames:
         wb.remove(wb["Sheet"])
 
-    header_font = Font(name='Arial', size=12, bold=True, color="000000")
+    header_font = Font(name="Arial", size=12, bold=True, color="000000")
     header_fill = PatternFill(
-        start_color="FFD700", end_color="FFD700", fill_type="solid")  # Gold background
+        start_color="FFD700", end_color="FFD700", fill_type="solid"
+    )  # Gold background
 
     for name in sheet_names:
         ws = wb.create_sheet(title=name)
@@ -158,8 +154,7 @@ def create_spreadsheet(filename, sheet_names, column_names, col_width=25):
 def isin_from_text(text: str) -> str | None:
 
     # 1. Relaxed regex to find ISINs even if they have a random space inside
-    isin_extract_rx = re.compile(
-        r"[A-Z]{2}(?:[?\s]*[A-Z0-9]){9}[?\s]*[0-9]")
+    isin_extract_rx = re.compile(r"[A-Z]{2}(?:[?\s]*[A-Z0-9]){9}[?\s]*[0-9]")
     # 2. Strict regex to validate after cleaning
     isin_strict_rx = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$")
     matches = isin_extract_rx.findall(text)
@@ -179,10 +174,8 @@ def get_random_user_agent(platform: list[str] = ["windows"]) -> dict:
     options.version_ranges = {
         "chrome": VersionRange(140, 144),  # Choose version between 125 and 129
     }
-    ua = ua_generator.generate(
-        browser="chrome", platform=platform, options=options)
-    ua.headers.accept_ch(
-        "Sec-CH-UA-Platform-Version, Sec-CH-UA-Full-Version-List")
+    ua = ua_generator.generate(browser="chrome", platform=platform, options=options)
+    ua.headers.accept_ch("Sec-CH-UA-Platform-Version, Sec-CH-UA-Full-Version-List")
     # return ua.headers.get()
     headers = ua.headers.get()
     return {k.title(): v for k, v in headers.items()}
@@ -243,21 +236,29 @@ def get_fund_type_total(fund_type: str) -> list[int]:
     if data:
         for d in data:
             if d["name"] == fund_type:
-                return [i for i in range(1, d["total"]+1)]
+                return [i for i in range(1, d["total"] + 1)]
     return []
 
 
 def fetch_with_backoff(
-    url, headers=get_random_user_agent(), cookies=None, max_retries=5, base_delay=2, proxy=""
+    url,
+    headers=get_random_user_agent(),
+    cookies=None,
+    max_retries=5,
+    base_delay=2,
+    proxy="",
 ):
     for attempt in range(max_retries):
         try:
             # Using curl_cffi to mimic a real browser (e.g., Chrome)
-            proxy_spec = ProxySpec(
-                {"http": proxy, "https": proxy}
-            )
+            proxy_spec = ProxySpec({"http": proxy, "https": proxy})
             response = requests.get(
-                url, headers=headers, cookies=cookies, impersonate="chrome", timeout=10, proxies=proxy_spec
+                url,
+                headers=headers,
+                cookies=cookies,
+                impersonate="chrome",
+                timeout=10,
+                proxies=proxy_spec,
             )
 
             # If successful, return the response
@@ -271,8 +272,7 @@ def fetch_with_backoff(
                 )
             else:
                 # For 404 or 403, retrying usually won't help
-                print(
-                    f"Permanent error {response.status_code}. Skipping retries.")
+                print(f"Permanent error {response.status_code}. Skipping retries.")
                 return response
 
         except Exception as e:
@@ -289,7 +289,6 @@ def fetch_with_backoff(
 
 
 def save_xlsx(
-
     xlsx_out: str,
     funds: list[dict],
     cols: list[str],
@@ -323,8 +322,7 @@ def extract_isin_from_pdf_bytes(pdf_bytes: bytes) -> str | None:
         reader = PdfReader(pdf_file)
 
         # Compile your regex engines (matching your exact kiid.py implementation)
-        isin_extract_rx = re.compile(
-            r"[A-Z]{2}(?:[?\s]*[A-Z0-9]){9}[?\\s]*[0-9]")
+        isin_extract_rx = re.compile(r"[A-Z]{2}(?:[?\s]*[A-Z0-9]){9}[?\\s]*[0-9]")
         isin_strict_rx = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$")
 
         # Iterate through pages to pull out text buffers
