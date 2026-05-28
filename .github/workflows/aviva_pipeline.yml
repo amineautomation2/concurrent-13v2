@@ -43,6 +43,7 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           TARGET_FUND_TYPE: ${{ github.event.inputs.fund_target }}
           RUNNER_IDENTIFIER: "aviva-runner-node-${{ matrix.node_id }}-${{ github.run_id }}"
         run: |
