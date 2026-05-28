@@ -11,7 +11,7 @@ from cloakbrowser import launch
 from curl_cffi import requests as cloaked_requests
 
 from db_manager import SupabaseQueueManager
-from utils import get_proxy_endpoint, get_random_user_agent
+from utils import delay, get_proxy_endpoint, get_random_user_agent, isin_from_gemini
 
 # Configure runtime execution logger
 logging.basicConfig(
@@ -140,10 +140,10 @@ def run_sync_pdf_isin_extraction(kiid_url: str) -> str | None:
                         doc.close()
                         return cleaned_isin
                 # try openai
-            # isin = isin_from_gemini(kiid_url)
+            isin = isin_from_gemini(kiid_url)
             doc.close()
-            # delay(7.0, 10.0)
-            # return isin if len(isin) == 12 else None
+            delay(7.0, 10.0)
+            return isin if len(isin) == 12 else None
             return None
 
     except Exception as e:

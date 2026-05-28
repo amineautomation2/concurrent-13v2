@@ -22,8 +22,8 @@ jobs:
       fail-fast: false
       matrix:
         # Spawns 10 parallel high-performance virtual machine workers
-        node_id: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-        #node_id: [1]
+        #node_id: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        node_id: [1]
 
     steps:
       - name: Codebase Clone Step

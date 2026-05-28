@@ -1,3 +1,4 @@
+import csv
 import io
 import json
 import os
@@ -337,3 +338,12 @@ def extract_isin_from_pdf_bytes(pdf_bytes: bytes) -> str | None:
     except Exception as e:
         print(f"Error parsing PDF structures: {e}")
     return None
+
+
+def read_csv(filename: str) -> list[dict]:
+    csv_data = []
+    with open(filename, "r", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            csv_data.append(row)
+    return csv_data
