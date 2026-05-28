@@ -1,4 +1,5 @@
-from fitz import re
+from google.genai import types
+from google import genai
 from curl_cffi import requests as cloaked_requests
 import os
 import pathlib
@@ -19,9 +20,50 @@ import openpyxl
 import json
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
-import random
 import io
-from pypdf import PdfReader
+import os
+
+
+def isin_from_gemini(input: str):
+    client = genai.Client(
+        api_key=os.environ.get("GEMINI_API_KEY")
+    )
+
+    model = "gemini-3.1-flash-lite"
+    contents = [
+        types.Content(
+            role="user",
+            parts=[
+                types.Part.from_text(
+                    text=input)
+            ],
+        ),
+    ]
+    tools = [
+        types.Tool(url_context=types.UrlContext()),
+    ]
+    generate_content_config = types.GenerateContentConfig(
+        thinking_config=types.ThinkingConfig(
+            thinking_level="MINIMAL",
+        ),
+        tools=tools,
+        system_instruction=[
+            types.Part.from_text(text="""* Extract only first ISIN found withing input url.
+* Stop further processing once an ISIN was found.
+* Return None if nothing was found."""),
+        ],
+    )
+
+    out = []
+    for chunk in client.models.generate_content_stream(
+        model=model,
+        contents=contents,
+        config=generate_content_config,
+    ):
+        if text := chunk.text:
+
+            out.append(text)
+    return "".join(out)
 
 
 def get_random_proxy_port_str():
@@ -113,12 +155,23 @@ def create_spreadsheet(filename, sheet_names, column_names, col_width=25):
     wb.save(filename)
 
 
-def isin_from_text(text: str) -> str:
-    isin_pattern = r"[A-Z]{2}[A-Z0-9]{9}[0-9]$"
-    isin = re.findall(isin_pattern, text)
-    if len(isin) > 0:
-        return isin[0]
-    return ""
+def isin_from_text(text: str) -> str | None:
+
+    # 1. Relaxed regex to find ISINs even if they have a random space inside
+    isin_extract_rx = re.compile(
+        r"[A-Z]{2}(?:[?\s]*[A-Z0-9]){9}[?\s]*[0-9]")
+    # 2. Strict regex to validate after cleaning
+    isin_strict_rx = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$")
+    matches = isin_extract_rx.findall(text)
+
+    for match in matches:
+        # Clean the extracted string by removing all spaces
+        cleaned_isin = match.replace(" ", "")
+
+        # Strictly validate
+        if isin_strict_rx.match(cleaned_isin):
+            return cleaned_isin
+    return None
 
 
 def get_random_user_agent(platform: list[str] = ["windows"]) -> dict:

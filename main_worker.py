@@ -15,7 +15,7 @@ from curl_cffi import requests as cloaked_requests
 from db_manager import SupabaseQueueManager  # Handles atomic state updates
 from parser import AvivaDomParser            # Contains locate_kiid_anchor
 # Fetches your target residential proxies
-from utils import get_proxy_endpoint
+from utils import get_proxy_endpoint, get_random_user_agent, isin_from_gemini
 # Your native working sync browser launcher
 from cloakbrowser import launch
 
@@ -92,11 +92,11 @@ def run_sync_pdf_isin_extraction(kiid_url: str) -> str | None:
             'ApplicationGatewayAffinityCORS': 'e1dd5c8d8f0aaac8dbef88daaa63d498',
             'ApplicationGatewayAffinity': 'e1dd5c8d8f0aaac8dbef88daaa63d498',
         }
+        h = get_random_user_agent()
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36...',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,*/*'
         }
-
+        headers.update(h)
         response = cloaked_requests.get(
             kiid_url,
             headers=headers,
@@ -116,19 +116,14 @@ def run_sync_pdf_isin_extraction(kiid_url: str) -> str | None:
             doc = fitz.open(stream=response.content, filetype="pdf")
             print(f"Successfully loaded PDF. Total pages: {len(doc)}")
 
-            # Compile your regex engines
-            isin_extract_rx = re.compile(
-                r"[A-Z]{2}(?:[?\s]*[A-Z0-9]){9}[?\\s]*[0-9]")
-            isin_strict_rx = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$")
-
-            for page_num in range(len(doc)):
+            for page_num in range(doc.page_count):
                 page = doc[page_num]
+                page.clean_contents()
                 text = page.get_text()  # This extracts the actual text string from the page
 
                 # 1. Relaxed regex to find ISINs even if they have a random space inside
                 isin_extract_rx = re.compile(
                     r"[A-Z]{2}(?:[?\s]*[A-Z0-9]){9}[?\s]*[0-9]")
-
                 # 2. Strict regex to validate after cleaning
                 isin_strict_rx = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$")
                 matches = isin_extract_rx.findall(text)
@@ -141,8 +136,10 @@ def run_sync_pdf_isin_extraction(kiid_url: str) -> str | None:
                     if isin_strict_rx.match(cleaned_isin):
                         doc.close()
                         return cleaned_isin
+                # try openai
+            isin = isin_from_gemini(kiid_url)
             doc.close()
-            return None
+            return isin if len(isin) == 12 else None
 
     except Exception as e:
         logging.error(f"Error processing PDF stream content: {e}")
